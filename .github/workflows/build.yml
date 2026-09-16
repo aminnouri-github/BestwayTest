@@ -14,7 +14,7 @@ jobs:
 
       - name: Unzip project
         run: |
-          unzip -o project.zip -d extracted
+          unzip -o Bestway.zip -d extracted
           ls -la extracted
 
       - name: Set up JDK 17
