@@ -1,40 +1,328 @@
-name: Build APK
+Fix the GitHub Actions Android build workflow for the Bestway project.
+
+IMPORTANT:
+The Bestway Android project is already stored directly in this GitHub repository.
+
+DO NOT expect or search for:
+Bestway.zip
+
+DO NOT run:
+unzip Bestway.zip
+
+The workflow must build the Android project directly from the checked-out repository.
+
+==================================================
+1. PROJECT DETECTION
+==================================================
+
+First determine where the Android project is located.
+
+The project may be:
+
+A) Repository root:
+
+settings.gradle.kts
+build.gradle.kts
+gradlew
+app/
+
+OR
+
+B) Inside a subdirectory.
+
+Find the directory containing:
+
+settings.gradle.kts OR settings.gradle
+
+and the Android app module.
+
+The workflow must automatically determine the correct project directory.
+
+Do not assume Bestway.zip exists.
+
+==================================================
+2. GRADLE WRAPPER
+==================================================
+
+Before building, verify that:
+
+gradlew
+gradlew.bat
+gradle/wrapper/gradle-wrapper.jar
+gradle/wrapper/gradle-wrapper.properties
+
+exist.
+
+If gradlew is missing, DO NOT simply fail.
+
+Create a proper Gradle Wrapper using an installed Gradle version compatible with the project's Android Gradle Plugin.
+
+If the wrapper cannot safely be generated automatically, stop with a clear error explaining exactly which Gradle Wrapper file is missing.
+
+Do not fabricate a successful build.
+
+==================================================
+3. GITHUB ACTIONS
+==================================================
+
+Create or replace:
+
+.github/workflows/android-build.yml
+
+Use:
+
+name: Build Bestway APK
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main, master ]
-  workflow_dispatch: {}
+    branches:
+      - main
+      - master
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip project
-        run: |
-          unzip -o Bestway.zip -d extracted
-          ls -la extracted
-
-      - name: Set up JDK 17
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Gradle wrapper
-        working-directory: extracted
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          gradle wrapper --gradle-version 8.9
-          chmod +x gradlew
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
 
-      - name: Build debug APK
-        working-directory: extracted
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Detect Android project
+        id: project
+        shell: bash
+        run: |
+          set -e
 
-      - name: Upload APK
+          echo "Repository contents:"
+          find . -maxdepth 3 -type f | sort | head -300
+
+          PROJECT_DIR=""
+
+          if [ -f "./settings.gradle.kts" ] || [ -f "./settings.gradle" ]; then
+            PROJECT_DIR="."
+          else
+            PROJECT_SETTINGS=$(find . -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
+              -not -path "./.git/*" | head -1)
+
+            if [ -n "$PROJECT_SETTINGS" ]; then
+              PROJECT_DIR=$(dirname "$PROJECT_SETTINGS")
+            fi
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found."
+            echo "No settings.gradle.kts or settings.gradle was found."
+            exit 1
+          fi
+
+          echo "Android project directory: $PROJECT_DIR"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Android project
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "Current directory:"
+          pwd
+
+          echo "Project files:"
+          ls -la
+
+          test -f settings.gradle.kts || test -f settings.gradle
+
+          if [ ! -f ./gradlew ]; then
+            echo "ERROR: gradlew is missing."
+            echo "A valid Gradle Wrapper must be committed to the repository."
+            exit 1
+          fi
+
+          if [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "ERROR: gradle-wrapper.jar is missing."
+            exit 1
+          fi
+
+          if [ ! -f ./gradle/wrapper/gradle-wrapper.properties ]; then
+            echo "ERROR: gradle-wrapper.properties is missing."
+            exit 1
+          fi
+
+          chmod +x ./gradlew
+
+      - name: Show Gradle version
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: ./gradlew --version
+
+      - name: Build Debug APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Find generated APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for APK files..."
+
+          find . -type f -name "*.apk" -print
+
+          APK_COUNT=$(find . -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: No APK was generated."
+            exit 1
+          fi
+
+      - name: Rename APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: Debug APK not found."
+            exit 1
+          fi
+
+          echo "Found APK: $APK"
+
+          mkdir -p build/final-apk
+
+          cp "$APK" build/final-apk/Bestway-debug.apk
+
+          ls -lh build/final-apk/Bestway-debug.apk
+
+      - name: Upload Bestway Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: BestwayTest-debug-apk
-          path: extracted/app/build/outputs/apk/debug/*.apk
+          name: Bestway-debug
+          path: ${{ steps.project.outputs.project_dir }}/build/final-apk/Bestway-debug.apk
+          if-no-files-found: error
+
+==================================================
+4. APPLICATION CONFIGURATION
+==================================================
+
+Verify the Android project uses:
+
+compileSdk = 35
+targetSdk = 35
+minSdk = 26
+
+Application ID:
+
+com.bestway.navigator
+
+IMPORTANT:
+
+Do NOT use:
+
+applicationIdSuffix = ".debug"
+
+The debug build must remain:
+
+com.bestway.navigator
+
+==================================================
+5. APK NAME
+==================================================
+
+The final uploaded artifact must be exactly:
+
+Bestway-debug.apk
+
+Do not require the Gradle output filename itself to already be Bestway-debug.apk.
+
+It is acceptable to copy/rename the generated debug APK after a successful build.
+
+==================================================
+6. API KEYS
+==================================================
+
+Do not put Neshan or any other API key directly into the GitHub workflow.
+
+Do not commit secrets.
+
+If API credentials are required during compilation, use GitHub Secrets.
+
+The build must still work without runtime API credentials if the application architecture allows it.
+
+==================================================
+7. BUILD FAILURE
+==================================================
+
+Never claim that the APK was created unless the build actually succeeds.
+
+If the build fails:
+
+1. Show the complete relevant Gradle error.
+2. Identify the exact file causing the problem.
+3. Fix the problem.
+4. Run the build again.
+5. Continue until the build succeeds or provide the exact remaining blocker.
+
+==================================================
+8. IMPORTANT RESTRICTIONS
+==================================================
+
+Do NOT:
+
+- use Bestway.zip
+- unzip Bestway.zip
+- fabricate APK files
+- skip Gradle compilation
+- ignore Gradle errors
+- remove project functionality just to make compilation pass
+- replace real Android code with fake placeholder code solely to pass the build
+
+The objective is a REAL compilable Android application.
+
+==================================================
+9. FINAL RESULT
+==================================================
+
+At the end, report:
+
+1. Android project directory
+2. Gradle version
+3. Android SDK version
+4. compileSdk
+5. targetSdk
+6. minSdk
+7. applicationId
+8. Whether Gradle build succeeded
+9. Exact APK path
+10. APK file size
+11. GitHub Actions artifact name
+
+Expected artifact:
+
+Bestway-debug
+
+Expected file:
+
+Bestway-debug.apk
+
+Do not report success unless the file actually exists.
