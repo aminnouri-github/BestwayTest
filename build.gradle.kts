@@ -1,4 +1,11 @@
-plugins {
-    id("com.android.application") version "8.7.3" apply false
-    id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+
+android { namespace = "com.bestway.navigator"; compileSdk = 35
+    defaultConfig { applicationId = "com.bestway.navigator"; minSdk = 24; targetSdk = 35; versionCode = 1; versionName = "0.1-test" }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
 }
