@@ -1,8 +1,0 @@
-<resources>
-    <style name="Theme.Bestway" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#168CFF</item>
-        <item name="android:navigationBarColor">#071B33</item>
-        <item name="android:statusBarColor">#071B33</item>
-    </style>
-</resources>
